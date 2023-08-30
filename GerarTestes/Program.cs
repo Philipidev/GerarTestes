@@ -10,6 +10,7 @@ string assemblyWebAPIPath = "C:\\Users\\phili\\source\\repos\\InspecaoWebAPI\\In
 
 Assembly assembly = Assembly.LoadFrom(assemblyWebAPIPath);
 
+////Tratar retorno quando o endpoint retornar no content
 GerarTestesDeAcordoComEndpoints();
 
 void GerarTestesDeAcordoComEndpoints()
@@ -59,11 +60,15 @@ void GerarTestesDeAcordoComEndpoints()
 
         // Loop por todos os métodos públicos no controlador
         var metodos = controller.GetMethods(BindingFlags.Instance | BindingFlags.Public).Where(m => !m.IsSpecialName && m.DeclaringType.Name == controller.Name).ToArray();
+        
+        
+        //Tratar retorno quando o endpoint retornar no content
         foreach (var method in metodos)
         {
             string uri = $"api/{controllerName}/{method.Name}";
 
             sbTestes.AppendLine($"        private const string {method.Name}Uri = \"{uri}\";");
+
 
             sbMetodos.AppendLine($"\n        [Theory(DisplayName = \"GET {uri} retorna codigos http correto e resultados esperados\", Skip = \"Gerado pelo GeradorDeTestes e não foi modificado ainda\")]");
             sbMetodos.AppendLine($"        [Trait(\"UseCase\", nameof({controller.Name}.{method.Name}))]");
