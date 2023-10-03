@@ -1,21 +1,22 @@
-﻿using System;
-using System.IO;
-using System.Linq;
+﻿using Microsoft.AspNetCore.Mvc;
 using System.Reflection;
 using System.Text;
 
-string controllersPath = "C:\\Users\\phili\\source\\repos\\InspecaoWebAPI\\InspecaoWebAPI\\Controllers";
-string controllersTestPath = "C:\\Users\\phili\\source\\repos\\InspecaoWebAPI\\InspecaoWebAPI.Tests\\Controllers";
-string assemblyWebAPIPath = "C:\\Users\\phili\\source\\repos\\InspecaoWebAPI\\InspecaoWebAPI\\bin\\Debug\\net6.0\\InspecaoWebAPI.dll";
+string controllersPath = "C:\\Users\\Victor\\Desktop\\GestaoEmergenciaWebAPI\\GestaoEmergenciaWebAPI\\Controllers";
+string controllersTestPath = "C:\\Users\\Victor\\Desktop\\GestaoEmergenciaWebAPI\\GestaoEmergenciaWebAPI.Testes\\Controllers";
+string assemblyWebAPIPath = "C:\\Users\\Victor\\Desktop\\GestaoEmergenciaWebAPI\\GestaoEmergenciaWebAPI\\bin\\Debug\\net6.0\\GestaoEmergenciaWebAPI.dll";
 
 Assembly assembly = Assembly.LoadFrom(assemblyWebAPIPath);
 
-////Tratar retorno quando o endpoint retornar no content
 GerarTestesDeAcordoComEndpoints();
+
+string CamelCase(string s)
+{
+    return Char.ToUpperInvariant(s[0]) + s.Substring(1).ToLowerInvariant();
+}
 
 void GerarTestesDeAcordoComEndpoints()
 {
-    // Obtém todas as classes de controladores
     var controllerTypes = assembly.GetTypes().Where(t => t.Name.EndsWith("Controller")).ToList();
 
     foreach (var controller in controllerTypes)
@@ -25,63 +26,102 @@ void GerarTestesDeAcordoComEndpoints()
 
         string controllerName = controller.Name.Replace("Controller", "");
         string testName = $"{controllerName}Tests";
-        string namespaceForTest = "InspecaoWebAPI.Testes.Controllers." + controllerName + "s"; // Pluralizado com "s" no final
+        string namespaceForTest = "GestaoEmergenciaWebAPI.Testes.Controllers." + controllerName + "s"; // Pluralizado com "s" no final
         string testParamsClassName = $"{controllerName}TestParameters";
 
 
-        // Adiciona o cabeçalho
+        // Adiciona o cabeçalho do arquivo de teste
         sbTestes.AppendLine("using FluentAssertions;");
-        sbTestes.AppendLine("using InspecaoWebAPI.Controllers;");
-        sbTestes.AppendLine($"using InspecaoWebAPI.Models.{controllerName};");
-        //AcaoRecomendadaController
-        //
-
-        sbTestes.AppendLine("using InspecaoWebAPI.Testes.Base;");
+        sbTestes.AppendLine("using GestaoEmergenciaWebAPI.Controllers;");
+        sbTestes.AppendLine($"using GestaoEmergenciaWebAPI.Models.{controllerName};");
+        sbTestes.AppendLine("using GestaoEmergenciaWebAPI.Testes.Base;");
         sbTestes.AppendLine("using System.Net;");
         sbTestes.AppendLine("using System.Threading.Tasks;");
         sbTestes.AppendLine("using Xunit;");
-
         sbTestes.AppendLine($"\nnamespace {namespaceForTest}");
         sbTestes.AppendLine("{");
-        sbTestes.AppendLine($"    public class {testName} : InspecaoIntegrationTest");
-        sbTestes.AppendLine("    {");
-        sbTestes.AppendLine($"        public {testName}(InspecaoTestWebAppFactory fixture) : base(fixture) {{ }}");
+        sbTestes.AppendLine($"\tpublic class {testName} : GestaoEmergenciaIntegrationTest");
+        sbTestes.AppendLine("\t{");
+        sbTestes.AppendLine($"\t\tpublic {testName}(GestaoEmergenciaTestWebAppFactory fixture) : base(fixture) {{ }}");
+        sbTestes.AppendLine("");
 
-        sbTestesParameters.AppendLine($"using InspecaoWebAPI.Models.{controllerName};");
+        // Adiciona o cabeçalho do arquivo de parametros de teste
+        sbTestesParameters.AppendLine($"using GestaoEmergenciaWebAPI.Models.{controllerName};");
         sbTestesParameters.AppendLine("using System.Collections.Generic;");
         sbTestesParameters.AppendLine("using System.Net;");
         sbTestesParameters.AppendLine("");
         sbTestesParameters.AppendLine($"namespace {namespaceForTest}");
         sbTestesParameters.AppendLine("{");
-        sbTestesParameters.AppendLine($"    public static class {testParamsClassName}");
-        sbTestesParameters.AppendLine("    {");
+        sbTestesParameters.AppendLine($"\tpublic class {testParamsClassName}");
+        sbTestesParameters.AppendLine("\t{");
 
         StringBuilder sbMetodos = new StringBuilder();
 
-        // Loop por todos os métodos públicos no controlador
-        var metodos = controller.GetMethods(BindingFlags.Instance | BindingFlags.Public).Where(m => !m.IsSpecialName && m.DeclaringType.Name == controller.Name).ToArray();
-        
+        ISet<Type> actionAttributeTypes = new HashSet<Type>()
+        {
+            typeof(Microsoft.AspNetCore.Mvc.HttpGetAttribute),
+            typeof(Microsoft.AspNetCore.Mvc.HttpPostAttribute),
+            typeof(Microsoft.AspNetCore.Mvc.HttpPutAttribute),
+            typeof(Microsoft.AspNetCore.Mvc.HttpDeleteAttribute),
+        };
+
+        //ProducesResponseTypeAttribute
+
+        IEnumerable<Type> controllers = assembly.GetTypes().Where(t => t.Name.StartsWith("GestaoEmergenciaWebAPI.Controllers"));
+
+        // Loop por todos os métodos públicos no controlador que remetem a uma request http
+        MethodInfo[] metodos = controller.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(m => !m.IsSpecialName && m.DeclaringType.Name == controller.Name && m.GetCustomAttributes().Any(a => actionAttributeTypes.Contains(a.GetType())))
+            .ToArray();
         
         //Tratar retorno quando o endpoint retornar no content
         foreach (var method in metodos)
         {
-            string uri = $"api/{controllerName}/{method.Name}";
+            string uri = $"api/{controllerName}/{{nameof({controller.Name}.{method.Name})}}";
+            string httpMethod = "";
+            bool ehNoContentResult = false;
 
-            sbTestes.AppendLine($"        private const string {method.Name}Uri = \"{uri}\";");
+            if (method.GetCustomAttributes().Any(a => a.GetType() == typeof(Microsoft.AspNetCore.Mvc.HttpGetAttribute)))
+                httpMethod = "GET";
+            else if (method.GetCustomAttributes().Any(a => a.GetType() == typeof(Microsoft.AspNetCore.Mvc.HttpPostAttribute)))
+                httpMethod = "POST";
+            else if (method.GetCustomAttributes().Any(a => a.GetType() == typeof(Microsoft.AspNetCore.Mvc.HttpPutAttribute)))
+                httpMethod = "PUT";
+            else if (method.GetCustomAttributes().Any(a => a.GetType() == typeof(Microsoft.AspNetCore.Mvc.HttpDeleteAttribute)))
+                httpMethod = "DELETE";
 
+            List<Attribute> producesResponseTypeAttribute = method.GetCustomAttributes().Where(a => a.GetType() == typeof(Microsoft.AspNetCore.Mvc.ProducesResponseTypeAttribute)).ToList();
 
-            sbMetodos.AppendLine($"\n        [Theory(DisplayName = \"GET {uri} retorna codigos http correto e resultados esperados\", Skip = \"Gerado pelo GeradorDeTestes e não foi modificado ainda\")]");
+            if(producesResponseTypeAttribute.Any())
+            {
+                List<ProducesResponseTypeAttribute> attributes = producesResponseTypeAttribute.Select(a => (ProducesResponseTypeAttribute)a).ToList();
+                ehNoContentResult = attributes.Any(a => a.StatusCode == 204);
+            }
+
+            string methodNameUri = $"{method.Name}Uri";
+
+            sbTestes.AppendLine($"        private const string {methodNameUri} = $\"{uri}\";");
+
+            if (ehNoContentResult)
+                sbMetodos.AppendLine($"\n        [Theory(DisplayName = $\"{httpMethod} {{{methodNameUri}}} retorna codigo http correto\", Skip = \"Gerado pelo GeradorDeTestes e não foi modificado ainda\")]");
+            else
+                sbMetodos.AppendLine($"\n        [Theory(DisplayName = $\"{httpMethod} {{{methodNameUri}}} retorna codigo http correto e resultado nao nulo\", Skip = \"Gerado pelo GeradorDeTestes e não foi modificado ainda\")]");
             sbMetodos.AppendLine($"        [Trait(\"UseCase\", nameof({controller.Name}.{method.Name}))]");
             sbMetodos.AppendLine($"        [MemberData(nameof({controllerName}TestParameters.{method.Name}), MemberType = typeof({controllerName}TestParameters))]");
             sbMetodos.AppendLine($"        public async Task {method.Name}RetornaCodigosHttpCorreto(string jwt, {method.Name}Input input, HttpStatusCode expectedStatusCode)");
             sbMetodos.AppendLine("        {");
             sbMetodos.AppendLine("            // Act");
-            sbMetodos.AppendLine($"            (HttpStatusCode actualStatusCode, {method.Name}Output output) = await DoGetRequest<{method.Name}Output>({method.Name}Uri, bearerToken: jwt, parameters: input);");
+            if(ehNoContentResult)
+                sbMetodos.AppendLine($"            (HttpStatusCode actualStatusCode, string _) = await Do{CamelCase(httpMethod)}Request({method.Name}Uri, bearerToken: jwt, parameters: input);");
+            else
+                sbMetodos.AppendLine($"            (HttpStatusCode actualStatusCode, {method.Name}Output output) = await Do{CamelCase(httpMethod)}Request<{method.Name}Output>({method.Name}Uri, bearerToken: jwt, parameters: input);");
             sbMetodos.AppendLine("");
             sbMetodos.AppendLine("            // Assert");
             sbMetodos.AppendLine("            actualStatusCode.Should().Be(expectedStatusCode);");
+            if(!ehNoContentResult)
+                sbMetodos.AppendLine("            output.Should().NotBeNull();");
             sbMetodos.AppendLine("        }");
-            sbMetodos.AppendLine();
+            //sbMetodos.AppendLine();
 
             sbTestesParameters.AppendLine($"        public static List<object[]> {method.Name}()");
             sbTestesParameters.AppendLine("        {");
@@ -93,7 +133,10 @@ void GerarTestesDeAcordoComEndpoints()
             sbTestesParameters.AppendLine("                    {");
             sbTestesParameters.AppendLine("                        // Popule os campos necessários aqui");
             sbTestesParameters.AppendLine("                    },");
-            sbTestesParameters.AppendLine("                    HttpStatusCode.OK");
+            if(ehNoContentResult)
+                sbTestesParameters.AppendLine("                    HttpStatusCode.NoContent");
+            else
+                sbTestesParameters.AppendLine("                    HttpStatusCode.OK");
             sbTestesParameters.AppendLine("                },");
             sbTestesParameters.AppendLine("            };");
             sbTestesParameters.AppendLine("        }");
@@ -107,7 +150,7 @@ void GerarTestesDeAcordoComEndpoints()
         sbTestesParameters.AppendLine("    }");
         sbTestesParameters.AppendLine("}");
 
-        string testFolderPath = Path.Combine(controllersTestPath, controllerName);
+        string testFolderPath = Path.Combine(controllersTestPath, $"{controllerName}s");
         Directory.CreateDirectory(testFolderPath);  // Criar a pasta para o controlador, se ainda não existir
 
         string testFilePath = Path.Combine(testFolderPath, testName + ".cs");
